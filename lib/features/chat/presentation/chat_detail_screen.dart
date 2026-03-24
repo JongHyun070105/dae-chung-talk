@@ -56,12 +56,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _showAiReplySheet() {
-    showModalBottomSheet(
+    showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => AiReplySheet(roomId: widget.roomId),
-    );
+    ).then((shouldRefresh) {
+      if (shouldRefresh == true) {
+        _loadMessages();
+      }
+    });
   }
 
   @override

@@ -20,7 +20,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _checkStatus() async {
-    final enabled = await NativeBridge.checkServicesEnabled();
+    final enabledMap = await NativeBridge.checkServicesEnabled();
+    final enabled = (enabledMap['accessibility'] == true) &&
+                    (enabledMap['notification'] == true) &&
+                    (enabledMap['overlay'] == true);
     setState(() {
       _isServiceEnabled = enabled;
     });

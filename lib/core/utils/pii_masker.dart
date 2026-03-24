@@ -24,7 +24,46 @@ class PiiMasker {
     r'\b(?:\d[ -]*?){13,16}\b',
   );
 
+  /// 학습 불가능한 메시지 패턴 (PiiMasker.kt와 동기화)
+  static final _nonLearnablePatterns = [
+    RegExp(r'^메시지(를|가) 삭제(했습니다|되었습니다)\.?$'),
+    RegExp(r'^사진$'),
+    RegExp(r'^사진 \d+장$'),
+    RegExp(r'^동영상$'),
+    RegExp(r'^동영상 \d+개$'),
+    RegExp(r'^파일: .+$'),
+    RegExp(r'^이모티콘$'),
+    RegExp(r'^\(이모티콘\)$'),
+    RegExp(r'^스티커$'),
+    RegExp(r'^(음성|영상)통화.*$'),
+    RegExp(r'^통화시간 .+$'),
+    RegExp(r'^부재중 (음성|영상)통화$'),
+    RegExp(r'^(송금|입금).*$'),
+    RegExp(r'^.+님이 들어왔습니다\.?$'),
+    RegExp(r'^.+님이 나갔습니다\.?$'),
+    RegExp(r'^.+님을 초대했습니다\.?$'),
+    RegExp(r'^.+님이 .+님을 초대했습니다\.?$'),
+    RegExp(r'^채팅방 관리자가.*$'),
+    RegExp(r'^오픈채팅봇$'),
+    RegExp(r'^(지도|위치)$'),
+    RegExp(r'^라이브톡.*$'),
+    RegExp(r'^(투표|일정|공지)$'),
+    RegExp(r'^카카오페이.*$'),
+    RegExp(r'^삭제된 메시지입니다\.?$'),
+  ];
+
+  /// 학습 불가능한 메시지인지 판별 및 마스킹
   static String maskText(String text) {
+    final trimmed = text.trim();
+
+    // 1. 학습 불가능한 전체 메시지 패턴 매칭
+    for (final pattern in _nonLearnablePatterns) {
+      if (pattern.hasMatch(trimmed)) {
+        return '[학습 불가 데이터]';
+      }
+    }
+
+    // 2. 일반 텍스트 내의 개인정보 마스킹 처리
     var masked = text;
     masked = masked.replaceAll(_rrnRegex, '[주민번호 마스킹]');
     masked = masked.replaceAll(_phoneRegex, '[전화번호 마스킹]');

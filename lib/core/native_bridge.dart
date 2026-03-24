@@ -22,14 +22,30 @@ class NativeBridge {
     }
   }
 
-  /// 백그라운드 서비스 활성화 여부 확인
-  static Future<bool> checkServicesEnabled() async {
+  /// 다른 앱 위에 표시 설정 화면으로 이동
+  static Future<void> openOverlaySettings() async {
     try {
-      final bool result = await _channel.invokeMethod('checkServicesEnabled');
-      return result;
+      await _channel.invokeMethod('openOverlaySettings');
     } on PlatformException catch (e) {
-      debugPrint('NativeBridge Error (checkServicesEnabled): $e');
-      return false;
+      debugPrint('NativeBridge Error (openOverlaySettings): $e');
+    }
+  }
+
+  /// 백그라운드 서비스 활성화 여부 확인 (접근성, 알림, 오버레이 3가지)
+  static Future<Map<String, bool>> checkServicesEnabled() async {
+    try {
+      final Map<Object?, Object?>? result = await _channel.invokeMethod('checkServicesEnabled');
+      if (result != null) {
+        return {
+          'accessibility': result['accessibility'] == true,
+          'notification': result['notification'] == true,
+          'overlay': result['overlay'] == true,
+        };
+      }
+      return {'accessibility': false, 'notification': false, 'overlay': false};
+    } on PlatformException {
+      debugPrint('NativeBridge Error (checkServicesEnabled)');
+      return {'accessibility': false, 'notification': false, 'overlay': false};
     }
   }
 
@@ -38,8 +54,8 @@ class NativeBridge {
     try {
       final int count = await _channel.invokeMethod('getMessageCount');
       return count;
-    } on PlatformException catch (e) {
-      debugPrint('NativeBridge Error (getMessageCount): $e');
+    } on PlatformException {
+      debugPrint('NativeBridge Error (getMessageCount)');
       return 0;
     }
   }
@@ -91,6 +107,34 @@ class NativeBridge {
     } on PlatformException catch (e) {
       debugPrint('NativeBridge Error (generateAiReply): $e');
       return ['네, 확인했습니다.', '지금은 어렵습니다.', '글쎄요, 조금 더 생각해볼게요.'];
+    }
+  }
+
+  /// 직접 답장 가능 여부 확인 (RemoteInput 존재 여부)
+  static Future<bool> canDirectReply(String roomId) async {
+    try {
+      final bool result = await _channel.invokeMethod(
+        'canDirectReply',
+        {'roomId': roomId},
+      );
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('NativeBridge Error (canDirectReply): $e');
+      return false;
+    }
+  }
+
+  /// RemoteInput을 통해 직접 답장 전송
+  static Future<bool> sendDirectReply(String roomId, String text) async {
+    try {
+      final bool result = await _channel.invokeMethod(
+        'sendDirectReply',
+        {'roomId': roomId, 'text': text},
+      );
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('NativeBridge Error (sendDirectReply): $e');
+      return false;
     }
   }
 }

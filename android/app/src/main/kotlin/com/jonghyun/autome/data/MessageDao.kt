@@ -38,6 +38,10 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE roomId = :roomId ORDER BY timestamp ASC")
     fun getMessagesForRoom(roomId: String): List<MessageEntity>
 
+    // ── 특정 채팅방 메시지 페이지네이션 조회 (최신 순으로 가져와서 뒤집어서 표시할 용도) ──
+    @Query("SELECT * FROM messages WHERE roomId = :roomId ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getMessagesForRoomPaged(roomId: String, limit: Int, offset: Int): List<MessageEntity>
+
     // ── 특정 채팅방 메시지 수 조회 ──
     @Query("SELECT COUNT(*) FROM messages WHERE roomId = :roomId")
     fun getMessageCountForRoom(roomId: String): Int
