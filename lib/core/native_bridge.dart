@@ -82,12 +82,12 @@ class NativeBridge {
     }
   }
 
-  /// 특정 채팅방 메시지 조회
-  static Future<List<Map<String, dynamic>>> getChatMessages(String roomId) async {
+  /// 특정 채팅방 메시지 페이지네이션 조회 (최신 순)
+  static Future<List<Map<String, dynamic>>> getChatMessages(String roomId, {int limit = 50, int offset = 0}) async {
     try {
       final List<dynamic> result = await _channel.invokeMethod(
         'getChatMessages',
-        {'roomId': roomId},
+        {'roomId': roomId, 'limit': limit, 'offset': offset},
       );
       return result.map((e) => Map<String, dynamic>.from(e)).toList();
     } on PlatformException catch (e) {
@@ -134,6 +134,48 @@ class NativeBridge {
       return result;
     } on PlatformException catch (e) {
       debugPrint('NativeBridge Error (sendDirectReply): $e');
+      return false;
+    }
+  }
+
+  /// 채팅방 규칙 저장
+  static Future<bool> saveRoomRule(String roomId, String rule) async {
+    try {
+      final bool result = await _channel.invokeMethod(
+        'saveRoomRule',
+        {'roomId': roomId, 'rule': rule},
+      );
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('NativeBridge Error (saveRoomRule): $e');
+      return false;
+    }
+  }
+
+  /// 채팅방 규칙 조회
+  static Future<String?> getRoomRule(String roomId) async {
+    try {
+      final String? result = await _channel.invokeMethod(
+        'getRoomRule',
+        {'roomId': roomId},
+      );
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('NativeBridge Error (getRoomRule): $e');
+      return null;
+    }
+  }
+
+  /// 채팅방 삭제 (메시지 및 규칙 모두 삭제)
+  static Future<bool> deleteChatRoom(String roomId) async {
+    try {
+      final bool result = await _channel.invokeMethod(
+        'deleteChatRoom',
+        {'roomId': roomId},
+      );
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('NativeBridge Error (deleteChatRoom): $e');
       return false;
     }
   }

@@ -91,7 +91,7 @@ class AICoreManager(private val context: Context) {
      * @param contextSize 컨텍스트로 사용할 최근 메시지 수
      * @return 3가지 페르소나(수락, 거절, 모호함)의 답변 리스트
      */
-    suspend fun generateReplyFromDb(roomId: String, contextSize: Int = DEFAULT_CONTEXT_SIZE): List<String> {
+    suspend fun generateReplyFromDb(roomId: String, roomRule: String? = null, contextSize: Int = DEFAULT_CONTEXT_SIZE): List<String> {
         return withContext(Dispatchers.IO) {
             val db = AppDatabase.getDatabase(context)
             val recentMessages = db.messageDao().getRecentMessages(roomId, contextSize)
@@ -107,7 +107,7 @@ class AICoreManager(private val context: Context) {
             }
 
             Log.d(TAG, "Generating reply with ${contextStrings.size} context messages for room: $roomId")
-            generateReply(contextStrings)
+            generateReply(contextStrings, roomRule)
         }
     }
 
@@ -117,18 +117,18 @@ class AICoreManager(private val context: Context) {
      * @param messageContext 대화 맥락 문자열 리스트
      * @return 3가지 페르소나(수락, 거절, 모호함)의 답변 리스트
      */
-    suspend fun generateReply(messageContext: List<String>): List<String> {
+    suspend fun generateReply(messageContext: List<String>, roomRule: String? = null): List<String> {
         Log.d(TAG, "Generating replies based on context. length: ${messageContext.size}")
 
         val contextBlock = messageContext.joinToString("\n")
 
         // 3가지 페르소나별 프롬프트 생성
         val personaPrompts = listOf(
-            buildPersonaPrompt(contextBlock, "수락",
+            buildPersonaPrompt(contextBlock, roomRule, "수락",
                 "상대의 요청이나 제안에 긍정적으로 동의하는 답변을 한국어로 생성하세요. 친근하고 자연스러운 말투로 1~2문장으로 작성하세요."),
-            buildPersonaPrompt(contextBlock, "거절",
+            buildPersonaPrompt(contextBlock, roomRule, "거절",
                 "상대의 요청이나 제안을 정중하게 거절하는 답변을 한국어로 생성하세요. 예의 바르지만 확고한 말투로 1~2문장으로 작성하세요."),
-            buildPersonaPrompt(contextBlock, "모호함",
+            buildPersonaPrompt(contextBlock, roomRule, "모호함",
                 "상대의 요청이나 제안에 대해 애매하게 답변하세요. 한국어로 확답을 피하면서 자연스러운 말투로 1~2문장으로 작성하세요.")
         )
 
@@ -150,14 +150,20 @@ class AICoreManager(private val context: Context) {
     /**
      * 페르소나별 프롬프트를 빌드합니다.
      */
-    private fun buildPersonaPrompt(contextBlock: String, personaName: String, instruction: String): String {
+    private fun buildPersonaPrompt(contextBlock: String, roomRule: String?, personaName: String, instruction: String): String {
+        val ruleInstruction = if (!roomRule.isNullOrBlank()) {
+            "\n다음 특별 규칙을 반드시 지켜서 작성하세요: \"$roomRule\"\n"
+        } else {
+            ""
+        }
+        
         return """
             |다음은 최근 대화 내역입니다:
             |---
             |$contextBlock
             |---
             |
-            |위 대화의 마지막 메시지에 대한 [$personaName] 톤의 답장을 생성하세요.
+            |위 대화의 마지막 메시지에 대한 [$personaName] 톤의 답장을 생성하세요.$ruleInstruction
             |$instruction
             |답장만 출력하세요. 설명이나 접두사 없이 답장 문장만 작성하세요.
         """.trimMargin()

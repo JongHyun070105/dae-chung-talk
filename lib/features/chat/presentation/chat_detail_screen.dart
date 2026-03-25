@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/native_bridge.dart';
 import '../../../core/theme/app_theme.dart';
-import 'ai_reply_sheet.dart';
 
 /// 채팅 상세 화면
 /// 특정 채팅방의 메시지를 카카오톡 스타일 버블 UI로 표시합니다.
@@ -23,12 +21,25 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _offset = 0;
+  final int _limit = 50;
+
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _loadMessages();
+    
+    // 무한 스크롤 리스너 추가
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 && 
+          !_isLoadingMore && _hasMore) {
+        _loadMoreMessages();
+      }
+    });
   }
 
   @override
@@ -38,34 +49,77 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _loadMessages() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _offset = 0;
+      _hasMore = true;
+      _messages.clear();
+    });
     try {
-      final messages = await NativeBridge.getChatMessages(widget.roomId);
+      final messages = await NativeBridge.getChatMessages(widget.roomId, limit: _limit, offset: _offset);
       setState(() {
         _messages = messages;
-      });
-      // 로딩 후 맨 아래로 스크롤
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-        }
+        _offset += messages.length;
+        _hasMore = messages.length == _limit;
       });
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  void _showAiReplySheet() {
-    showModalBottomSheet<bool>(
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final messages = await NativeBridge.getChatMessages(widget.roomId, limit: _limit, offset: _offset);
+      setState(() {
+        _messages.addAll(messages);
+        _offset += messages.length;
+        _hasMore = messages.length == _limit;
+      });
+    } finally {
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
+  void _showRuleDialog() async {
+    final currentRule = await NativeBridge.getRoomRule(widget.roomId);
+    if (!mounted) return;
+
+    final TextEditingController ruleController = TextEditingController(text: currentRule ?? '');
+    
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => AiReplySheet(roomId: widget.roomId),
-    ).then((shouldRefresh) {
-      if (shouldRefresh == true) {
-        _loadMessages();
-      }
-    });
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('AI 답변 규칙 설정'),
+          content: TextField(
+            controller: ruleController,
+            decoration: const InputDecoration(
+              hintText: '예: 직장 상사에게는 무조건 존댓말',
+            ),
+            maxLines: 2,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await NativeBridge.saveRoomRule(widget.roomId, ruleController.text.trim());
+                if (context.mounted) Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('저장'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -125,6 +179,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.tune_rounded, size: 22),
+            onPressed: _showRuleDialog,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh_rounded, size: 22),
             onPressed: _loadMessages,
           ),
@@ -149,53 +207,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       )
                     : ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        itemCount: _messages.length,
+                        reverse: true, // Item 0이 제일 아래(최신 메시지)로 가도록 지원 (DB에서 DESC로 가져옴)
+                        padding: EdgeInsets.fromLTRB(12, 16, 12, MediaQuery.of(context).padding.bottom + 100),
+                        itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
                         itemBuilder: (context, index) {
+                          if (index == _messages.length) {
+                             return const Padding(
+                               padding: EdgeInsets.all(16.0),
+                               child: Center(child: CircularProgressIndicator()),
+                             );
+                          }
+                          // reverse: true 이므로 인덱스가 클수록 과거 메시지
                           final msg = _messages[index];
-                          final prevMsg = index > 0 ? _messages[index - 1] : null;
+                          final prevMsg = index < _messages.length - 1 ? _messages[index + 1] : null;
                           return _buildMessageBubble(msg, prevMsg, isDark);
                         },
                       ),
           ),
 
-          // ── AI 답장 버튼 ──
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkSurface : Colors.white,
-              border: Border(
-                top: BorderSide(
-                  color: context.dividerColor,
-                  width: 0.5,
-                ),
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _messages.isEmpty ? null : _showAiReplySheet,
-                  icon: const Icon(Icons.auto_awesome_rounded, size: 20),
-                  label: const Text('AI 답장 생성'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    elevation: 0,
-                    textStyle: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );

@@ -45,4 +45,8 @@ interface MessageDao {
     // ── 특정 채팅방 메시지 수 조회 ──
     @Query("SELECT COUNT(*) FROM messages WHERE roomId = :roomId")
     fun getMessageCountForRoom(roomId: String): Int
+
+    // ── 특정 채팅방 모든 메시지 삭제 ──
+    @Query("DELETE FROM messages WHERE roomId = :roomId")
+    fun deleteMessagesByRoom(roomId: String)
 }

@@ -297,10 +297,12 @@ class MainActivity : FlutterActivity() {
                 }
                 "getChatMessages" -> {
                     val roomId = call.argument<String>("roomId")
+                    val limit = call.argument<Int>("limit") ?: 50
+                    val offset = call.argument<Int>("offset") ?: 0
                     if (roomId != null) {
                         CoroutineScope(Dispatchers.IO).launch {
                             val db = AppDatabase.getDatabase(applicationContext)
-                            val messages = db.messageDao().getMessagesForRoom(roomId)
+                            val messages = db.messageDao().getMessagesForRoomPaged(roomId, limit, offset)
                             val resultList = messages.map {
                                 mapOf(
                                     "id" to it.id,
@@ -319,13 +321,45 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "roomId is required", null)
                     }
                 }
+                "saveRoomRule" -> {
+                    val roomId = call.argument<String>("roomId")
+                    val rule = call.argument<String>("rule")
+                    if (roomId != null && rule != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val db = AppDatabase.getDatabase(applicationContext)
+                            db.roomRuleDao().insertRule(com.jonghyun.autome.data.RoomRuleEntity(roomId, rule))
+                            launch(Dispatchers.Main) {
+                                result.success(true)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "roomId and rule are required", null)
+                    }
+                }
+                "getRoomRule" -> {
+                    val roomId = call.argument<String>("roomId")
+                    if (roomId != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val db = AppDatabase.getDatabase(applicationContext)
+                            val rule = db.roomRuleDao().getRuleForRoom(roomId)
+                            launch(Dispatchers.Main) {
+                                result.success(rule)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "roomId is required", null)
+                    }
+                }
                 "generateAiReply" -> {
                     val roomId = call.argument<String>("roomId")
                     if (roomId != null) {
                         CoroutineScope(Dispatchers.IO).launch {
                             try {
+                                val db = AppDatabase.getDatabase(applicationContext)
+                                val rule = db.roomRuleDao().getRuleForRoom(roomId)
+
                                 val aiCoreManager = AICoreManager(applicationContext)
-                                val replies = aiCoreManager.generateReplyFromDb(roomId)
+                                val replies = aiCoreManager.generateReplyFromDb(roomId, roomRule = rule)
                                 aiCoreManager.close()
                                 launch(Dispatchers.Main) {
                                     result.success(replies)
@@ -368,24 +402,20 @@ class MainActivity : FlutterActivity() {
                                 }
                                 action.pendingIntent.send(this, 0, replyIntent)
 
-                                // 전송한 메시지를 DB에도 기록
                                 CoroutineScope(Dispatchers.IO).launch {
                                     val db = AppDatabase.getDatabase(applicationContext)
                                     db.messageDao().insertMessage(
-                                        com.jonghyun.autome.data.MessageEntity(
+                                        MessageEntity(
                                             roomId = roomId,
                                             sender = "나",
-                                            message = com.jonghyun.autome.utils.PiiMasker.maskText(replyText),
+                                            message = PiiMasker.maskText(replyText),
                                             timestamp = System.currentTimeMillis(),
                                             isSentByMe = true
                                         )
                                     )
                                 }
-
-                                android.util.Log.d("MainActivity", "Direct reply sent to $roomId: $replyText")
                                 result.success(true)
                             } catch (e: Exception) {
-                                android.util.Log.e("MainActivity", "Failed to send direct reply: $e")
                                 result.success(false)
                             }
                         } else {
@@ -393,6 +423,28 @@ class MainActivity : FlutterActivity() {
                         }
                     } else {
                         result.error("INVALID_ARGUMENT", "roomId and text are required", null)
+                    }
+                }
+                "deleteChatRoom" -> {
+                    val roomId = call.argument<String>("roomId")
+                    if (roomId != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                val db = AppDatabase.getDatabase(applicationContext)
+                                db.messageDao().deleteMessagesByRoom(roomId)
+                                db.roomRuleDao().deleteRule(roomId)
+                                ReplyActionStore.remove(roomId)
+                                launch(Dispatchers.Main) {
+                                    result.success(true)
+                                }
+                            } catch (e: Exception) {
+                                launch(Dispatchers.Main) {
+                                    result.error("DELETE_ERROR", "Failed to delete room: $e", null)
+                                }
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "roomId is required", null)
                     }
                 }
                 else -> result.notImplemented()

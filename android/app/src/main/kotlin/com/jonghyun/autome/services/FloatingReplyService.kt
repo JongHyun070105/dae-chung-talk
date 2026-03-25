@@ -20,8 +20,14 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import com.jonghyun.autome.R
+import com.jonghyun.autome.data.AppDatabase
+import com.jonghyun.autome.data.MessageEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * FloatingReplyService: 시스템 최상단 플로팅 뷰 서비스
@@ -41,17 +47,20 @@ class FloatingReplyService : Service() {
         const val EXTRA_REPLY_KEY = "extra_reply_key"
         const val EXTRA_REPLY_PENDING_INTENT = "extra_reply_pending_intent"
         const val EXTRA_SENDER = "extra_sender"
+        const val EXTRA_ROOM_ID = "extra_room_id"
 
         fun createIntent(
             context: Context,
             replies: ArrayList<String>,
             sender: String,
+            roomId: String,
             replyKey: String?,
             replyPendingIntent: PendingIntent?
         ): Intent {
             return Intent(context, FloatingReplyService::class.java).apply {
                 putStringArrayListExtra(EXTRA_REPLIES, replies)
                 putExtra(EXTRA_SENDER, sender)
+                putExtra(EXTRA_ROOM_ID, roomId)
                 putExtra(EXTRA_REPLY_KEY, replyKey)
                 putExtra(EXTRA_REPLY_PENDING_INTENT, replyPendingIntent)
             }
@@ -62,16 +71,27 @@ class FloatingReplyService : Service() {
     private var windowManager: WindowManager? = null
     private var replyKey: String? = null
     private var replyPendingIntent: PendingIntent? = null
+    private var roomId: String? = null
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        if (Build.VERSION.SDK_INT >= 34) { // Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+            startForeground(
+                NOTIFICATION_ID,
+                buildForegroundNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val replies = intent?.getStringArrayListExtra(EXTRA_REPLIES) ?: arrayListOf()
         val sender = intent?.getStringExtra(EXTRA_SENDER) ?: "알 수 없음"
+        roomId = intent?.getStringExtra(EXTRA_ROOM_ID)
         replyKey = intent?.getStringExtra(EXTRA_REPLY_KEY)
         replyPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra(EXTRA_REPLY_PENDING_INTENT, PendingIntent::class.java)
@@ -91,60 +111,61 @@ class FloatingReplyService : Service() {
     }
 
     private fun showFloatingView(sender: String, replies: List<String>) {
-        // 기존 뷰가 있으면 제거
-        removeFloatingView()
-
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
 
         val layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 16
-            y = 100
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            x = 0
+            y = 150
         }
 
-        val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
-        floatingView = inflater.inflate(R.layout.floating_reply_layout, null)
-
-        // 제목 설정
-        floatingView?.findViewById<TextView>(R.id.tvFloatingTitle)?.text = "$sender 에게 답장"
-
-        // 3가지 페르소나 버튼 설정
-        val btnReply1 = floatingView?.findViewById<Button>(R.id.btnReply1)
-        val btnReply2 = floatingView?.findViewById<Button>(R.id.btnReply2)
-        val btnReply3 = floatingView?.findViewById<Button>(R.id.btnReply3)
-        val btnClose = floatingView?.findViewById<Button>(R.id.btnClose)
-
-        btnReply1?.text = replies[0]
-        btnReply2?.text = replies[1]
-        btnReply3?.text = replies[2]
-
-        btnReply1?.setOnClickListener { sendReply(replies[0]) }
-        btnReply2?.setOnClickListener { sendReply(replies[1]) }
-        btnReply3?.setOnClickListener { sendReply(replies[2]) }
-        btnClose?.setOnClickListener {
-            removeFloatingView()
-            stopSelf()
+        if (floatingView == null) {
+            floatingView = inflater.inflate(R.layout.floating_reply_layout, null)
+            // 드래그 이동 지원
+            setupDragMovement(floatingView!!, layoutParams)
+            try {
+                windowManager?.addView(floatingView, layoutParams)
+                Log.d(TAG, "Floating view added for: $sender")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add floating view: $e")
+                stopSelf()
+                return
+            }
+        } else {
+            Log.d(TAG, "Updating existing floating view for: $sender")
         }
 
-        // 드래그 이동 지원
-        setupDragMovement(floatingView!!, layoutParams)
+        // 컨텐츠 업데이트
+        floatingView?.let { view ->
+            view.findViewById<TextView>(R.id.tvFloatingTitle)?.text = "$sender 에게 답장"
+            
+            val btnReply1 = view.findViewById<Button>(R.id.btnReply1)
+            val btnReply2 = view.findViewById<Button>(R.id.btnReply2)
+            val btnReply3 = view.findViewById<Button>(R.id.btnReply3)
+            val btnClose = view.findViewById<Button>(R.id.btnClose)
 
-        try {
-            windowManager?.addView(floatingView, layoutParams)
-            Log.d(TAG, "Floating view shown with replies for: $sender")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to add floating view: $e")
-            stopSelf()
+            btnReply1?.text = replies[0]
+            btnReply2?.text = replies[1]
+            btnReply3?.text = replies[2]
+
+            btnReply1?.setOnClickListener { sendReply(replies[0]) }
+            btnReply2?.setOnClickListener { sendReply(replies[1]) }
+            btnReply3?.setOnClickListener { sendReply(replies[2]) }
+            btnClose?.setOnClickListener {
+                removeFloatingView()
+                stopSelf()
+            }
         }
     }
 
@@ -166,6 +187,9 @@ class FloatingReplyService : Service() {
                 }
                 pendingIntent.send(this, 0, replyIntent)
                 Log.d(TAG, "Reply sent via RemoteInput: $replyText")
+
+                // DB에 보낸 메시지 저장
+                saveSentMessage(replyText)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send reply: $e")
             }
@@ -175,6 +199,26 @@ class FloatingReplyService : Service() {
 
         removeFloatingView()
         stopSelf()
+    }
+
+    private fun saveSentMessage(text: String) {
+        val currentRoomId = roomId ?: return
+        scope.launch {
+            try {
+                val db = AppDatabase.getDatabase(applicationContext)
+                val message = MessageEntity(
+                    roomId = currentRoomId,
+                    sender = "나", // 본인임을 나타내는 발신자명
+                    message = text,
+                    timestamp = System.currentTimeMillis(),
+                    isSentByMe = true
+                )
+                db.messageDao().insertMessage(message)
+                Log.d(TAG, "Sent message saved to DB: roomId=$currentRoomId, text=$text")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save sent message to DB: $e")
+            }
+        }
     }
 
     private fun setupDragMovement(view: View, params: WindowManager.LayoutParams) {
