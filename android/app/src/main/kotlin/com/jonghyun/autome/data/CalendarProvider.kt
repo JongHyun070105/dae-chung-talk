@@ -112,19 +112,50 @@ class CalendarProvider(private val context: Context) {
     }
 
     fun getTodayEventsSummary(): String {
-        val events = getTodayEvents()
-        if (events.isEmpty()) return "최근 1개월간 등록된 일정이 없습니다."
+        val allEvents = getTodayEvents()
+        if (allEvents.isEmpty()) return "최근 1개월간 등록된 일정이 없습니다."
+
+        // PII 마스킹 및 날짜별 그룹화
+        val groupedEvents = mutableMapOf<String, MutableList<CalendarEvent>>()
+        val now = Calendar.getInstance()
+        val todayStr = DateFormat.format("yyyy-MM-dd", now.timeInMillis).toString()
+        
+        val tomorrow = Calendar.getInstance()
+        tomorrow.add(Calendar.DAY_OF_YEAR, 1)
+        val tomorrowStr = DateFormat.format("yyyy-MM-dd", tomorrow.timeInMillis).toString()
+
+        allEvents.forEach { event ->
+            val maskedEvent = event.copy(
+                title = com.jonghyun.autome.utils.PiiMasker.maskText(event.title),
+                description = event.description?.let { com.jonghyun.autome.utils.PiiMasker.maskText(it) }
+            )
+            
+            val dateKey = DateFormat.format("yyyy-MM-dd", event.startTime).toString()
+            val list = groupedEvents.getOrPut(dateKey) { mutableListOf() }
+            list.add(maskedEvent)
+        }
 
         val sb = StringBuilder("사용자 일정 (전후 1개월):\n")
-        events.forEach { event ->
-            val dateStr = DateFormat.format("MM/dd", event.startTime).toString()
-            if (event.isAllDay) {
-                sb.append("- $dateStr [하루 종일]: ${event.title}\n")
-            } else {
-                val startTimeStr = DateFormat.format("HH:mm", event.startTime).toString()
-                sb.append("- $dateStr $startTimeStr: ${event.title}\n")
+        val sortedDates = groupedEvents.keys.sorted()
+        
+        sortedDates.forEach { dateKey ->
+            val label = when (dateKey) {
+                todayStr -> "[오늘]"
+                tomorrowStr -> "[내일]"
+                else -> "[$dateKey]"
+            }
+            sb.append("\n$label\n")
+            
+            groupedEvents[dateKey]?.forEach { event ->
+                if (event.isAllDay) {
+                    sb.append("- [하루 종일]: ${event.title}\n")
+                } else {
+                    val startTimeStr = DateFormat.format("HH:mm", event.startTime).toString()
+                    sb.append("- $startTimeStr: ${event.title}\n")
+                }
             }
         }
+        
         return sb.toString()
     }
 }
