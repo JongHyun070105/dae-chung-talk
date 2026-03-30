@@ -334,23 +334,26 @@ class MainActivity : FlutterActivity() {
                     } else result.error("INVALID_ARGUMENT", "args required", null)
                 }
                 "getRoomRule" -> {
-                    val rid = call.argument<String>("roomId")
-                    if (rid != null) {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val r = AppDatabase.getDatabase(applicationContext).roomRuleDao().getRuleForRoom(rid)
-                            launch(Dispatchers.Main) { 
-                                if (r != null) {
-                                    result.success(mapOf(
-                                        "roomId" to r.roomId,
-                                        "rule" to r.rule,
-                                        "isAutoReplyEnabled" to r.isAutoReplyEnabled
-                                    ))
-                                } else {
-                                    result.success(null)
-                                }
-                            }
+                    val roomId = call.argument<String>("roomId") ?: ""
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val rule = AppDatabase.getDatabase(applicationContext).roomRuleDao().getRuleForRoom(roomId)
+                        withContext(Dispatchers.Main) {
+                            result.success(
+                                if (rule != null) {
+                                    mapOf(
+                                        "roomId" to rule.roomId,
+                                        "rule" to rule.rule,
+                                        "isAutoReplyEnabled" to rule.isAutoReplyEnabled
+                                    )
+                                } else null
+                            )
                         }
-                    } else result.error("INVALID_ARGUMENT", "roomId required", null)
+                    }
+                }
+                "getCalendarDiagnostics" -> {
+                    val calendarProvider = com.jonghyun.autome.data.CalendarProvider(applicationContext)
+                    val diagnostics = calendarProvider.getCalendarDiagnostics()
+                    result.success(diagnostics)
                 }
                 "generateAiReply" -> {
                     val rid = call.argument<String>("roomId")

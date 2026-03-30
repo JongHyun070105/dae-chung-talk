@@ -118,6 +118,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
                       description: '오늘 일정을 확인하여 답변에 참고합니다.',
                       isGranted: _calendarEnabled,
                       onOpenSettings: NativeBridge.requestCalendarPermission,
+                      showDiagnostics: true,
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -132,6 +133,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
     required String description,
     required bool isGranted,
     required VoidCallback onOpenSettings,
+    bool showDiagnostics = false,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -173,11 +175,77 @@ class _PermissionsScreenState extends State<PermissionsScreen> with WidgetsBindi
             ),
           ] else ...[
              const SizedBox(height: 12),
-             const Align(
-               alignment: Alignment.centerRight,
-               child: Text('완료', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+             Row(
+               mainAxisAlignment: MainAxisAlignment.end,
+               children: [
+                 if (showDiagnostics) 
+                   TextButton(
+                     onPressed: _showCalendarDiagnostics,
+                     child: const Text('진단 정보 보기', style: TextStyle(fontSize: 12)),
+                   ),
+                 const Text('완료', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+               ],
              )
           ]
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showCalendarDiagnostics() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final diagnostics = await NativeBridge.getCalendarDiagnostics();
+    
+    if (!mounted) return;
+    Navigator.of(context).pop(); // Close loading
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('캘린더 진단 정보'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDiagRow('캘린더 계정 수', '${diagnostics['calendarCount'] ?? 0}개'),
+              _buildDiagRow('등록된 일정 수', '${diagnostics['eventCount'] ?? 0}개'),
+              _buildDiagRow('마지막 조회', (diagnostics['lastQueryTime'] ?? '-').toString()),
+              const Divider(),
+              const Text('계정 목록:', style: TextStyle(fontWeight: FontWeight.bold)),
+              if (diagnostics['calendars'] != null)
+                ...(diagnostics['calendars'] as List).map((cal) => Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    '• ${cal['name']} (${cal['account']})\n  가시성: ${cal['visible'] == "1" ? "표시됨" : "숨김"}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                )),
+              if (diagnostics['error'] != null)
+                Text('\n에러: ${diagnostics['error']}', style: const TextStyle(color: Colors.red)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiagRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

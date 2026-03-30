@@ -27,6 +27,15 @@ class NativeBridge {
     return await _channel.invokeMethod('getUsageStatsPermission');
   }
 
+  static Future<Map<String, dynamic>> getCalendarDiagnostics() async {
+    try {
+      final Map<dynamic, dynamic> result = await _channel.invokeMethod('getCalendarDiagnostics');
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      return {'error': e.toString()};
+    }
+  }
+
   /// 캘린더 권한 요청
   static Future<bool> requestCalendarPermission() async {
     return await _channel.invokeMethod('requestCalendarPermission');

@@ -111,6 +111,45 @@ class CalendarProvider(private val context: Context) {
         return events
     }
 
+    fun getCalendarDiagnostics(): Map<String, Any> {
+        val diagnostics = mutableMapOf<String, Any>()
+        val calendarList = mutableListOf<Map<String, String>>()
+        
+        try {
+            val calCursor = context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(
+                    CalendarContract.Calendars._ID,
+                    CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+                    CalendarContract.Calendars.ACCOUNT_NAME,
+                    CalendarContract.Calendars.VISIBLE
+                ),
+                null, null, null
+            )
+            calCursor?.use {
+                while (it.moveToNext()) {
+                    calendarList.add(mapOf(
+                        "id" to it.getLong(0).toString(),
+                        "name" to (it.getString(1) ?: "Unknown"),
+                        "account" to (it.getString(2) ?: "Unknown"),
+                        "visible" to it.getInt(3).toString()
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            diagnostics["error"] = e.message ?: "Unknown error"
+        }
+
+        val allEvents = getTodayEvents()
+        
+        diagnostics["calendarCount"] = calendarList.size
+        diagnostics["eventCount"] = allEvents.size
+        diagnostics["calendars"] = calendarList
+        diagnostics["lastQueryTime"] = Date().toString()
+        
+        return diagnostics
+    }
+
     fun getTodayEventsSummary(): String {
         val allEvents = getTodayEvents()
         if (allEvents.isEmpty()) return "최근 1개월간 등록된 일정이 없습니다."
